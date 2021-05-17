@@ -1,8 +1,6 @@
-
 typedef char ascii;
 typedef unsigned int u32;
 typedef u32 umm;
-
 
 typedef struct {
     ascii *data;
