@@ -1,12 +1,12 @@
 [bits 16]
 org 0x7c00
+kernel_offset equ 0x1000 ; The same one we used when linking the kernel
 
 boot_main_16:
+    mov [boot_disk], dl
 
     mov bp, 0x8000 ; this is an address far away from 0x7c00 so that we don't get overwritten
     mov sp, bp ; if the stack is empty then sp points to bp
-
-    mov ah, 0x0e ; tty mode
 
     mov bx, the_string
     call bios_print_string
@@ -14,22 +14,17 @@ boot_main_16:
     mov bl, dl
     call bios_print_hex_8
 
-    mov bx, 0x9000 ; es:bx = 0x0000:0x9000 = 0x09000
+    mov bx, kernel_offset ; destination
     mov dh, 2 ; read 2 sectors
+    mov dl, [boot_disk]
     call bios_disk_load
-    
-    mov bx, [0x9000] ; must be '0xdada'
-    call bios_print_hex_16
-
-    mov bx, [0x9000 + 512] ; must be '0xface'
-    call bios_print_hex_16
-    
     call switch_to_protected_mode
     jmp $ ; this will actually never be executed
 
 ; bx - pointer to null terminated string
 bios_print_string:
     push ax
+    mov ah, 0x0e; tty mode
 .next:
     mov al, [bx]
     cmp al, 0
@@ -40,7 +35,7 @@ bios_print_string:
 .stop:
     pop ax
     ret
-    
+
 ; bl - value to print
 bios_print_hex_4:
     and bl, 0x0f
@@ -104,9 +99,8 @@ bios_disk_load:
 .disk_error:
     mov bx, disk_error_message
     call bios_print_string
-    mov bh, ah ; ah = error code, dl = disk drive that dropped the error
-    mov bl, dl
-    call bios_print_hex_16 ; check out the code at http://stanislavs.org/helppc/int_13-1.html
+    mov bl, ah ; ah = error code, dl = disk drive that dropped the error
+    call bios_print_hex_8 ; check out the code at http://stanislavs.org/helppc/int_13-1.html
     jmp $
 
 .sectors_error:
@@ -121,7 +115,7 @@ gdt_start: ; don't remove the labels, they're needed to compute sizes and jumps
 
 ; GDT for code segment. base = 0x00000000, length = 0xfffff
 ; for flags, refer to os-dev.pdf document, page 36
-gdt_code: 
+gdt_code:
     dw 0xffff    ; segment length, bits 0-15
     dw 0x0       ; segment base, bits 0-15
     db 0x0       ; segment base, bits 16-23
@@ -194,19 +188,19 @@ boot_main_32: ; we are now using 32-bit instructions
 
     mov ebp, 0x90000 ; 6. update the stack right at the top of the free space
     mov esp, ebp
-    
+
     mov ebx, the_string
     call print_string ; Note that this will be written at the top left corner
-    jmp $
+    call kernel_offset
+    hlt
 
 
 disk_error_message: db "Disk read error", 0
 sectors_error_message: db "Incorrect number of sectors read", 0
-the_string: db 'Hello ', 0
+the_string: db 'Disk ', 0
+boot_disk: db 0
 
 ; Fill with 510 zeros minus the size of the previous code
 times 510-($-$$) db 0
 ; Magic number
 dw 0xaa55
-times 256 dw 0xdada ; sector 2 = 512 bytes
-times 256 dw 0xface ; sector 3 = 512 bytes

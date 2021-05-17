@@ -1,2 +1,2 @@
 @echo off
-qemu-system-x86_64 bin\boot.bin -L F:\qemu
+qemu-system-x86_64 -fda bin\os.bin -L F:\qemu
