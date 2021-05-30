@@ -4,12 +4,10 @@ HEADERS = $(wildcard src/*.h)
 OBJ = ${CPP_SOURCES:.cpp=.o src/interrupt_stubs.o} 
 
 # Change this if your cross-compiler is somewhere else
-CC = /usr/local/i386elfgcc/bin/i386-elf-gcc
-LD = /usr/local/i386elfgcc/bin/i386-elf-ld
+CC = /usr/local/i386elfgcc/bin/i386-elf-gcc -ffreestanding -g -Wall -Wextra -Werror -Wno-literal-suffix -std=c++20 -m32 -Wl,-gc-sections -s -DDEBUG=1 -fno-exceptions -ffunction-sections -Os
+#LD = /usr/local/i386elfgcc/bin/i386-elf-ld -o $@ -Ttext 0x1000 $^ 
+LD = /usr/local/i386elfgcc/bin/i386-elf-ld -o $@ -T ./script.ld $^ 
 GDB = /usr/local/i386elfgcc/bin/i386-elf-gdb
-# -g: Use debugging symbols in gcc
-CFLAGS = -ffreestanding -g -Wall -Wextra -Werror -Wno-literal-suffix -std=c++20 -m32 -Wl,-gc-sections -s -DDEBUG=1 -fno-exceptions -ffunction-sections
-
 QEMU = qemu-system-i386 os.bin -serial stdio
 
 # First rule is run by default
@@ -18,12 +16,12 @@ os.bin: src/boot.bin kernel.bin
 
 # '--oformat binary' deletes all symbols as a collateral, so we don't need
 # to 'strip' them manually on this case
-kernel.bin: src/kernel_entry.o ${OBJ}
-	${LD} -o $@ -Ttext 0x1000 $^ --oformat binary
+kernel.bin: ${OBJ}
+	${LD} --oformat binary
 
 # Used for debugging purposes
-kernel.elf: src/kernel_entry.o ${OBJ}
-	${LD} -o $@ -Ttext 0x1000 $^ 
+kernel.elf: ${OBJ}
+	${LD}
 
 run: os.bin
 	${QEMU}

@@ -194,44 +194,6 @@ void assertion_failed(Span<ascii> cause, Span<ascii> expression, Span<ascii> fil
 	while (1) {}
 }
 
-extern "C" void kernel_main() {
-	int x = 6;
-	(void)x;
-	debug_print("Entered kernel_main\n"s);
-	defer { debug_print("Exited kernel_main\n"s); };
-
-	debug_print((u32)255);
-	debug_print(" is 255\n"s);
-
-	acpi::init();
-
-	interrupt::init();
-
-    asm volatile("sti");
-    //timer::init(50);
-
-	keyboard::init();
-
-	clear_screen();
-	print("Hello mister!\nPress escape to halt the cpu\nPress R to restart\n"s);
-
-	static constexpr Span<ascii> string_to_allocate = "This is an allocated string\n"s;
-
-	Span<ascii> allocated_string;
-	allocated_string.data = (ascii *)allocate(string_to_allocate.count);
-	allocated_string.count = string_to_allocate.count;
-	copy_memory(allocated_string.data, string_to_allocate.data, string_to_allocate.count);
-
-	print("Allocated "s);
-	print(string_to_allocate.count);
-	print(" bytes\n"s);
-
-	print(allocated_string);
-
-	while (1) {
-	}
-}
-
 void kernel_key_event(keyboard::Event event) {
 	debug_print("Event - key: "s);
 	debug_print(event.key);
@@ -254,5 +216,47 @@ void kernel_key_event(keyboard::Event event) {
 				break;
 			}
 		}
+	}
+}
+
+extern "C" void kernel_main() {
+	VGA_MEMORY[0] = 'X';
+
+	int x = 6;
+	(void)x;
+	debug_print("Entered kernel_main\n"s);
+	defer { debug_print("Exited kernel_main\n"s); };
+
+	return;
+
+	debug_print((u32)255);
+	debug_print(" is 255\n"s);
+
+	acpi::init();
+
+	interrupt::init();
+
+    asm volatile("sti");
+    //timer::init(50);
+
+	//keyboard::init();
+
+	clear_screen();
+	print("Hello mister!\nPress escape to halt the cpu\nPress R to restart\n"s);
+
+	static constexpr Span<ascii> string_to_allocate = "This is an allocated string\n"s;
+
+	Span<ascii> allocated_string;
+	allocated_string.data = (ascii *)allocate(string_to_allocate.count);
+	allocated_string.count = string_to_allocate.count;
+	copy_memory(allocated_string.data, string_to_allocate.data, string_to_allocate.count);
+
+	print("Allocated "s);
+	print(string_to_allocate.count);
+	print(" bytes\n"s);
+
+	print(allocated_string);
+
+	while (1) {
 	}
 }
