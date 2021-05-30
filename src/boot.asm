@@ -1,43 +1,156 @@
 [bits 16]
 org 0x7c00
 kernel_offset equ 0x1000 ; The same one we used when linking the kernel
+port_com1     equ 0x3f8
 
 boot_main_16:
     mov [boot_disk], dl
 
+    mov ax, cs
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+
     mov bp, 0x8000 ; this is an address far away from 0x7c00 so that we don't get overwritten
     mov sp, bp ; if the stack is empty then sp points to bp
 
-    mov bx, the_string
+
+    mov bx, message_disk_id
+    call bios_print_string
+    mov bl, [boot_disk]
+    call bios_print_hex_8
+    mov bx, message_new_line
     call bios_print_string
 
-    mov bl, dl
-    call bios_print_hex_8
+    ; Disk extensions check
+    ;
+    mov bx, message_disk_extensions
+    call bios_print_string
 
-    mov bx, kernel_offset ; destination
-    mov dh, 2 ; read 2 sectors
+    mov ah, 0x41
+    mov bx, 0x55aa
     mov dl, [boot_disk]
-    call bios_disk_load
+    int 0x13
+    jc .ext_not_supported
+        mov byte [has_disk_extensions], 1
+        mov bx, message_yes
+        jmp .ext_check_end
+.ext_not_supported:
+        mov byte [has_disk_extensions], 0
+        mov bx, message_no
+.ext_check_end:
+    call bios_print_string
+    mov bx, message_new_line
+    call bios_print_string
+
+
+
+
+    mov bx, message_reading_disk
+    call bios_print_string
+
+
+    cmp byte [has_disk_extensions], 0
+    je .read_disk_no_ext
+
+
+
+    push dword 0x0; upper 16-bits of 48-bit starting LBA
+    push dword 0x1; lower 32-bits of 48-bit starting LBA
+    push 0; segment
+    push kernel_offset; offset
+    push 127; number of sectors to transfer (max 127 on some BIOSes)
+    push 0x1000; always 0 + size of packet
+    mov si, 0
+    mov ds, si
+    mov si, sp
+    mov ah, 0x42
+    mov dl, [boot_disk]
+    int 0x13
+    jc .disk_error
+    jmp .disk_success
+
+.read_disk_no_ext:
+    mov ah, 0x02 ; read sectors command
+    mov al, 54 ; sector count
+    mov ch, 0 ; cylinder (0+)
+    mov cl, 2 ; sector (1+)
+    mov dh, 0 ; head (0+)
+    mov bx, 0
+    mov es, bx
+    mov bx, kernel_offset
+    mov dl, [boot_disk]
+    int 0x13
+    jc .disk_error
+
+.disk_success:
+        mov bx, message_done
+        call bios_print_string
+        jmp .disk_done
+.disk_error:
+        mov bx, message_disk_error
+        call bios_print_string
+        mov bl, ah
+        call bios_print_hex_8
+        mov bx, message_new_line
+        call bios_print_string
+.disk_done:
+
+    ; I experimented a bit and found out that 54 is the maximum number of sector i can read at once.
+    ; When reading more, kernel_main is just not called or a disk error occurs, and idk why.
+    ; Setting 'es' to 'kernel_offset >> 4' seem to have no effect.
+    ; Looks like the execution stops at 'int 0x13' and neither successful nor error path is executed
+    ;mov bx, kernel_offset; destination
+    ;mov dh, 54 ; read n sectors
+    ;mov cl, 2 ; start sector (starting from 1, 1 is boot)
+    ;mov dl, [boot_disk]
+    ;call bios_disk_load
+
+
+
+    ;mov word [disk_address_packet.destination_segment], 0x100
+    ;mov word [disk_address_packet.destination_offset], 0
+    ;mov word [disk_address_packet.start_block], 1
+    ;mov dl, [boot_disk]
+    ;mov si, disk_address_packet
+    ;mov bx, 0
+    ;mov ds, bx
+    ;mov cx, 54
+    ;mov ah, 0x42
+    ;int 0x13
+    ;jnc .disk_done
+    ;mov bx, disk_error_message
+    ;call bios_print_string
+    ;mov bl, ah ; ah = error code, dl = disk drive that dropped the error
+    ;call bios_print_hex_8 ; check out the code at http://stanislavs.org/helppc/int_13-1.html
+    ;jmp $
+;.disk_done:
+
     call switch_to_protected_mode
     jmp $ ; this will actually never be executed
 
 ; bx - pointer to null terminated string
 bios_print_string:
-    push ax
+    pusha
+    mov dx, port_com1
     mov ah, 0x0e; tty mode
 .next:
     mov al, [bx]
     cmp al, 0
     jz .stop
     int 0x10
+    out dx, al
     inc bx
     jmp .next
 .stop:
-    pop ax
+    popa
     ret
 
 ; bl - value to print
 bios_print_hex_4:
+    pusha
     and bl, 0x0f
     mov ax, '0'
     mov cx, 'a' - 10
@@ -46,6 +159,9 @@ bios_print_hex_4:
     add al, bl
     mov ah, 0x0e
     int 0x10
+    mov dx, port_com1
+    out dx, al
+    popa
     ret
 
 ; bl - value to print
@@ -65,48 +181,6 @@ bios_print_hex_16:
     pop bx
     call bios_print_hex_8
     ret
-
-; dl - drive id
-; dh - number of sectors to read
-; [es:bx] - destination
-bios_disk_load:
-    pusha
-    ; reading from disk requires setting specific values in all registers
-    ; so we will overwrite our input parameters from 'dx'. Let's save it
-    ; to the stack for later use.
-    push dx
-
-    mov ah, 0x02 ; ah <- int 0x13 function. 0x02 = 'read'
-    mov al, dh   ; al <- number of sectors to read (0x01 .. 0x80)
-    mov cl, 0x02 ; cl <- sector (0x01 .. 0x11)
-                 ; 0x01 is our boot sector, 0x02 is the first 'available' sector
-    mov ch, 0x00 ; ch <- cylinder (0x0 .. 0x3FF, upper 2 bits in 'cl')
-    ; dl <- drive number. Our caller sets it as a parameter and gets it from BIOS
-    ; (0 = floppy, 1 = floppy2, 0x80 = hdd, 0x81 = hdd2)
-    mov dh, 0x00 ; dh <- head number (0x0 .. 0xF)
-
-    ; [es:bx] <- pointer to buffer where the data will be stored
-    ; caller sets it up for us, and it is actually the standard location for int 13h
-    int 0x13      ; BIOS interrupt
-    jc .disk_error ; if error (stored in the carry bit)
-
-    pop dx
-    cmp al, dh    ; BIOS also sets 'al' to the # of sectors read. Compare it.
-    jne .sectors_error
-    popa
-    ret
-
-.disk_error:
-    mov bx, disk_error_message
-    call bios_print_string
-    mov bl, ah ; ah = error code, dl = disk drive that dropped the error
-    call bios_print_hex_8 ; check out the code at http://stanislavs.org/helppc/int_13-1.html
-    jmp $
-
-.sectors_error:
-    mov bx, sectors_error_message
-    call bios_print_string
-
 
 gdt_start: ; don't remove the labels, they're needed to compute sizes and jumps
     ; the GDT starts with a null 8-byte
@@ -161,7 +235,8 @@ video_white  equ 0xf
 
 print_string:
     pusha
-    mov edx, video_memory
+    mov dx, port_com1
+    mov ecx, video_memory
     mov ah, video_color(video_white, video_black)
 .loop:
     mov al, [ebx] ; [ebx] is the address of our character
@@ -169,9 +244,10 @@ print_string:
     cmp al, 0 ; check if end of string
     je .done
 
-    mov [edx], ax ; store character + attribute in video memory
+    out dx, al
+    mov [ecx], ax ; store character + attribute in video memory
     add ebx, 1 ; next char
-    add edx, 2 ; next video memory position
+    add ecx, 2 ; next video memory position
 
     jmp .loop
 .done:
@@ -189,16 +265,25 @@ boot_main_32: ; we are now using 32-bit instructions
     mov ebp, 0x90000 ; 6. update the stack right at the top of the free space
     mov esp, ebp
 
-    mov ebx, the_string
-    call print_string ; Note that this will be written at the top left corner
+    mov ebx, message_entering_kernel
+    call print_string
     call kernel_offset
+    cli
     hlt
 
 
-disk_error_message: db "Disk read error", 0
-sectors_error_message: db "Incorrect number of sectors read", 0
-the_string: db 'Disk ', 0
 boot_disk: db 0
+has_disk_extensions: db 0
+
+message_disk_error: db "Disk error ", 0
+message_reading_disk: db "Reading disk. ", 0
+message_entering_kernel: db "Entering kernel...", 0xa, 0
+message_done: db "done", 0xa, 0xd, 0
+message_disk_id: db "Disk id: ", 0
+message_disk_extensions: db "Disk extensions: ", 0
+message_yes: db "yes", 0
+message_no: db "no", 0
+message_new_line: db 0xa, 0xd, 0
 
 ; Fill with 510 zeros minus the size of the previous code
 times 510-($-$$) db 0
