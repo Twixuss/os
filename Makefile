@@ -29,13 +29,13 @@ run: os.bin
 # Open the connection to qemu and load our kernel-object file with symbols
 # -d guest_errors,int
 debug: os.bin kernel.elf
-	${QEMU} -s &
+	${QEMU} -s -S &
 	${GDB} -ex "target remote localhost:1234" -ex "symbol-file kernel.elf"
 
 # Generic rules for wildcards
 # To make an object, always compile from its .cpp
 %.o: %.cpp ${HEADERS}
-	${CC} ${CFLAGS} -c $< -o $@
+	${CC} -c $< -o $@
 
 %.o: %.asm
 	nasm $< -f elf -o $@

@@ -4,3 +4,4 @@ temp/
 .goutputstream*
 *.bin
 *.o
+tmp/

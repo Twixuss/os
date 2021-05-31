@@ -56,7 +56,7 @@ boot_main_16:
     je .read_disk_no_ext
 
 
-
+.read_disk_with_ext:
     push dword 0x0; upper 16-bits of 48-bit starting LBA
     push dword 0x1; lower 32-bits of 48-bit starting LBA
     push 0; segment
@@ -268,8 +268,7 @@ boot_main_32: ; we are now using 32-bit instructions
     mov ebx, message_entering_kernel
     call print_string
     call kernel_offset
-    cli
-    hlt
+    jmp $
 
 
 boot_disk: db 0

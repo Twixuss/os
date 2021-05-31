@@ -220,14 +220,10 @@ void kernel_key_event(keyboard::Event event) {
 }
 
 extern "C" void kernel_main() {
-	VGA_MEMORY[0] = 'X';
-
 	int x = 6;
 	(void)x;
 	debug_print("Entered kernel_main\n"s);
 	defer { debug_print("Exited kernel_main\n"s); };
-
-	return;
 
 	debug_print((u32)255);
 	debug_print(" is 255\n"s);
@@ -236,10 +232,13 @@ extern "C" void kernel_main() {
 
 	interrupt::init();
 
-    asm volatile("sti");
+	asm volatile("sti");
+
     //timer::init(50);
 
-	//keyboard::init();
+
+
+	keyboard::init();
 
 	clear_screen();
 	print("Hello mister!\nPress escape to halt the cpu\nPress R to restart\n"s);
@@ -256,7 +255,6 @@ extern "C" void kernel_main() {
 	print(" bytes\n"s);
 
 	print(allocated_string);
-
 	while (1) {
 	}
 }
