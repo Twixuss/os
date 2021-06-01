@@ -9,6 +9,7 @@
 #define ASSERTION_FAILED(cause, expression) assertion_failed(cause,expression,CONCAT(__FILE__,s),__LINE__)
 #define bounds_check(expression, ...) if (!(expression)){ASSERTION_FAILED("bounds_check"s, #expression##s);}else{}
 #define assert(expression, ...) if (!(expression)){ASSERTION_FAILED("assert"s, #expression##s);}else{}
+#define unreachable(...) ASSERTION_FAILED("unreachable"s, ""s)
 
 using ascii = char;
 using u8    = unsigned char;

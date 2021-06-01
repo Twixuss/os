@@ -4,11 +4,11 @@ HEADERS = $(wildcard src/*.h)
 OBJ = ${CPP_SOURCES:.cpp=.o src/interrupt_stubs.o} 
 
 # Change this if your cross-compiler is somewhere else
-CC = /usr/local/i386elfgcc/bin/i386-elf-gcc -ffreestanding -g -Wall -Wextra -Werror -Wno-literal-suffix -std=c++20 -m32 -Wl,-gc-sections -s -DDEBUG=1 -fno-exceptions -ffunction-sections -Os
+CC = /usr/local/i386elfgcc/bin/i386-elf-gcc -ffreestanding -g -Wall -Wextra -Werror -Wno-literal-suffix -std=c++20 -m32 -Wl,-gc-sections -s -DDEBUG=1 -fno-exceptions -ffunction-sections -Os # -fsanitize=undefined
 #LD = /usr/local/i386elfgcc/bin/i386-elf-ld -o $@ -Ttext 0x1000 $^ 
 LD = /usr/local/i386elfgcc/bin/i386-elf-ld -o $@ -T ./script.ld $^ 
 GDB = /usr/local/i386elfgcc/bin/i386-elf-gdb
-QEMU = qemu-system-i386 os.bin -serial stdio
+QEMU = qemu-system-i386 os.bin -serial stdio -D ./log.txt
 
 # First rule is run by default
 os.bin: src/boot.bin kernel.bin

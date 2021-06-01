@@ -220,15 +220,15 @@ void kernel_key_event(keyboard::Event event) {
 }
 
 extern "C" void kernel_main() {
-	int x = 6;
-	(void)x;
-	debug_print("Entered kernel_main\n"s);
-	defer { debug_print("Exited kernel_main\n"s); };
-
-	debug_print((u32)255);
-	debug_print(" is 255\n"s);
-
-	acpi::init();
+	//int x = 6;
+	//(void)x;
+	//debug_print("Entered kernel_main\n"s);
+	//defer { debug_print("Exited kernel_main\n"s); };
+	//
+	//debug_print((u32)255);
+	//debug_print(" is 255\n"s);
+	//
+	//acpi::init();
 
 	interrupt::init();
 
@@ -258,3 +258,59 @@ extern "C" void kernel_main() {
 	while (1) {
 	}
 }
+
+typedef umm ubsan_value_handle_t;
+
+struct ubsan_source_location
+{
+	const char* filename;
+	u32 line;
+	u32 column;
+};
+
+struct ubsan_type_descriptor
+{
+	u16 type_kind;
+	u16 type_info;
+	char type_name[];
+};
+
+
+
+struct ubsan_type_mismatch_data
+{
+	struct ubsan_source_location location;
+	struct ubsan_type_descriptor* type;
+	umm alignment;
+	unsigned char type_check_kind;
+};
+
+
+extern "C" void __ubsan_handle_type_mismatch_v1(void* data_raw, void* pointer_raw) {
+	struct ubsan_type_mismatch_data* data =
+		(struct ubsan_type_mismatch_data*) data_raw;
+	ubsan_value_handle_t pointer = (ubsan_value_handle_t) pointer_raw;
+	auto violation = "type mismatch"s;
+	if ( !pointer )
+		violation = "null pointer access"s;
+	else if ( data->alignment && (pointer & (data->alignment - 1)) )
+		violation = "unaligned access"s;
+	debug_print(violation);
+	unreachable();
+}
+
+#define UBSAN(name) \
+extern "C" void __ubsan_handle_##name() { \
+	debug_print(#name ## s); \
+	unreachable(); \
+}
+
+UBSAN(add_overflow)
+UBSAN(sub_overflow)
+UBSAN(mul_overflow)
+UBSAN(divrem_overflow)
+UBSAN(pointer_overflow)
+UBSAN(out_of_bounds)
+UBSAN(shift_out_of_bounds)
+UBSAN(load_invalid_value)
+

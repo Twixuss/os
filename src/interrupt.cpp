@@ -40,7 +40,10 @@ void set_gate(u8 n, u32 handler) {
 }
 
 void load() {
-	Register reg;
+	// Even though i take address of this in `asm volatile`,
+	// gcc seems to optimize this out when `volatile` is not present and -Os is specified
+	volatile Register reg;
+
 	reg.base = (u32)&gates;
 	reg.limit = gate_count * sizeof(Gate) - 1;
 	/* Don't make the mistake of loading &idt -- always load &reg */
@@ -105,6 +108,44 @@ extern "C" void irq12();
 extern "C" void irq13();
 extern "C" void irq14();
 extern "C" void irq15();
+
+inline static constexpr u8 icw1_icw4       = 0x01; // ICW4 (not) needed
+inline static constexpr u8 icw1_single     = 0x02; // Single (cascade) mode
+inline static constexpr u8 icw1_interval4  = 0x04; // Call address interval 4 (8)
+inline static constexpr u8 icw1_level      = 0x08; // Level triggered (edge) mode
+inline static constexpr u8 icw1_init       = 0x10; // Initialization - required!
+inline static constexpr u8 icw4_8086       = 0x01; // 8086/88 (MCS-80/85) mode
+inline static constexpr u8 icw4_auto       = 0x02; // Auto (normal) EOI
+inline static constexpr u8 icw4_buf_slave  = 0x08; // Buffered mode/slave
+inline static constexpr u8 icw4_buf_master = 0x0C; // Buffered mode/master
+inline static constexpr u8 icw4_sfnm       = 0x10; // Special fully nested (not)
+
+void remap_pic(int offset1, int offset2)
+{
+	auto a1 = port::read_u8(port::pic_master_data); // save masks
+	auto a2 = port::read_u8(port::pic_slave_data);
+
+	port::write_u8(port::pic_master_command, icw1_init | icw1_icw4); // starts the initialization sequence (in cascade mode)
+	//io_wait();
+	port::write_u8(port::pic_slave_command, icw1_init | icw1_icw4);
+	//io_wait();
+	port::write_u8(port::pic_master_data, offset1); // ICW2: Master PIC vector offset
+	//io_wait();
+	port::write_u8(port::pic_slave_data, offset2); // ICW2: Slave PIC vector offset
+	//io_wait();
+	port::write_u8(port::pic_master_data, 4); // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0000 0100)
+	//io_wait();
+	port::write_u8(port::pic_slave_data, 2); // ICW3: tell Slave PIC its cascade identity (0000 0010)
+	//io_wait();
+
+	port::write_u8(port::pic_master_data, icw4_8086);
+	//io_wait();
+	port::write_u8(port::pic_slave_data, icw4_8086);
+	//io_wait();
+
+	port::write_u8(port::pic_master_data, a1); // restore saved masks.
+	port::write_u8(port::pic_slave_data, a2);
+}
 
 void init() {
 	idt::set_gate(0, (u32)isr0);
@@ -177,20 +218,6 @@ void set_handler(u8 n, Handler handler) {
     handlers[n] = handler;
 }
 
-extern "C" void irq_handler(Registers &registers) {
-    /* After every interrupt we need to send an EOI to the PICs
-     * or they will not send another interrupt again */
-    if (registers.int_no >= 40)
-		port::write_u8(port::pic_slave_command, 0x20);
-	port::write_u8(port::pic_master_command, 0x20);
-
-    /* Handle the interrupt in a more modular way */
-    if (handlers[registers.int_no] != 0) {
-        handlers[registers.int_no](registers);
-    }
-}
-}
-
 /* To print the message which defines every exception */
 constexpr Span<ascii> interrupt_messages[256] = {
 	"Division By Zero"s,
@@ -250,4 +277,22 @@ extern "C" void isr_handler(Registers &registers) {
 	//print("\n"s);
 	//print(interrupt_messages[registers.int_no]);
 	//print("\n"s);
+}
+
+extern "C" void irq_handler(Registers &registers) {
+	debug_print("in irq_handler "s);
+	debug_print(registers.int_no);
+	debug_print('\n');
+
+    /* Handle the interrupt in a more modular way */
+    if (handlers[registers.int_no] != 0) {
+        handlers[registers.int_no](registers);
+    }
+
+    /* After every interrupt we need to send an EOI to the PICs
+     * or they will not send another interrupt again */
+    if (registers.int_no >= 40)
+		port::write_u8(port::pic_slave_command, 0x20);
+	port::write_u8(port::pic_master_command, 0x20);
+}
 }

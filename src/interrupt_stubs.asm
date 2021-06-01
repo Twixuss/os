@@ -1,5 +1,21 @@
+[bits 32]
 [extern isr_handler]
 [extern irq_handler]
+
+; ebx - pointer to null-terminated string
+debug_print_string:
+	pusha
+	mov dx, 0x3f8
+.loop:
+	mov al, [ebx]
+	cmp al, 0
+	je .end
+	out dx, al
+	inc ebx
+	jmp .loop
+.end:
+	popa
+	ret
 
 ; Common ISR code
 isr_common_stub:
@@ -14,6 +30,7 @@ isr_common_stub:
 	mov gs, ax
 	push esp
 	cld
+
 	; 2. Call C handler
 	call isr_handler
 
@@ -41,6 +58,7 @@ irq_common_stub:
 	mov gs, ax
 	push esp
 	cld
+
 	call irq_handler ; Different than the ISR code
 	pop ebx  ; Different than the ISR code
 	pop ebx
