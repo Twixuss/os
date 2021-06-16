@@ -1,8 +1,6 @@
 #pragma once
 #include "common.h"
 
-namespace keyboard {
-
 #define ALL_KEYS \
 K(null, 0) \
 K(escape, 1) \
@@ -118,12 +116,12 @@ enum : Key {
 };
 #undef K
 
-struct Event {
+struct KeyboardEvent {
 	Key key = 0;
 	bool down;
 };
 
-void init();
+void init_keyboard();
 Span<ascii> key_to_string(Key key);
 
-}
+bool key_held(Key key);

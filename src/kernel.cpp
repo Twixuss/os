@@ -10,6 +10,9 @@
 
 #define VGA_MEMORY ((char *)0xb8000)
 
+static u16 out_cursor;
+static u16 in_cursor;
+
 u16 get_vga_cursor() {
 	port::write_u8(port::vga_control, 14); /* Requesting byte 14: high byte of cursor pos */
 	u16 cursor = port::read_u8(port::vga_data);
@@ -58,17 +61,15 @@ void print(ascii character, u16 &cursor, char *&video_memory) {
 	}
 }
 
-void print(ascii character) {
-	u16 cursor = get_vga_cursor();
+u16 print(u16 cursor, ascii character) {
 	char *video_memory = VGA_MEMORY + cursor * 2;
 
 	print(character, cursor, video_memory);
 
 	scroll_if_needed(cursor);
-	set_vga_cursor(cursor);
+	return cursor;
 }
-void print(Span<ascii> string) {
-	u16 cursor = get_vga_cursor();
+u16 print(u16 cursor, Span<ascii> string) {
 	char *video_memory = VGA_MEMORY + cursor * 2;
 
 	while (string.count) {
@@ -77,19 +78,24 @@ void print(Span<ascii> string) {
 	}
 
 	scroll_if_needed(cursor);
-	set_vga_cursor(cursor);
+	return cursor;
 }
-void print(u32 value) {
+u16 print(u16 cursor, u32 value) {
 	static constexpr u32 quad_count = 8;
-	print("0x"s);
+	cursor = print(cursor, "0x"s);
 	for (u8 i = 0; i < quad_count; ++i) {
 		u8 q = (value >> ((quad_count - i - 1) * 4)) & 0xf;
 		if (q < 10) {
-			print((ascii)(q + '0'));
+			cursor = print(cursor, (ascii)(q + '0'));
 		} else {
-			print((ascii)(q + 'a' - 10));
+			cursor = print(cursor, (ascii)(q + 'a' - 10));
 		}
 	}
+	return cursor;
+}
+template <class T>
+void print(T const &value) {
+	out_cursor = print(out_cursor, value);
 }
 
 void clear_screen() {
@@ -101,7 +107,7 @@ void clear_screen() {
 		screen[i*2] = ' ';
 		screen[i*2+1] = 0x0f;
 	}
-	set_vga_cursor(0);
+	out_cursor = 0;
 }
 namespace timer {
 
@@ -160,6 +166,7 @@ struct StringBuilder {
 };
 
 umm append(StringBuilder &builder, void const *_data, umm count) {
+	trace;
 	u8 *data = (u8 *)_data;
 	umm bytes_appended = count;
 
@@ -178,6 +185,15 @@ umm append(StringBuilder &builder, void const *_data, umm count) {
 	return bytes_appended;
 }
 
+StaticList<ascii const *, 256> call_stack;
+
+void kernel_trace_call(ascii const *name) {
+	call_stack.add(name);
+}
+void kernel_trace_exit() {
+	call_stack.pop();
+}
+
 void assertion_failed(Span<ascii> cause, Span<ascii> expression, Span<ascii> file, u32 line) {
 	(void)cause;
 	(void)expression;
@@ -191,24 +207,35 @@ void assertion_failed(Span<ascii> cause, Span<ascii> expression, Span<ascii> fil
 	debug_print(file);
 	debug_print("\nLine:"s);
 	debug_print(line);
+	debug_print("\nCall stack:\n"s);
+	for (auto call : call_stack) {
+		debug_print(as_span(call));
+		debug_print('\n');
+	}
 	while (1) {}
 }
 
-void kernel_key_event(keyboard::Event event) {
+void on_character_input(ascii character) {
+	trace;
+	in_cursor = print(in_cursor, character);
+	set_vga_cursor(in_cursor);
+}
+
+internal Array<ascii, 256> character_add_shift;
+
+void kernel_key_event(KeyboardEvent event) {
+	trace;
 	debug_print("Event - key: "s);
 	debug_print(event.key);
 	debug_print(" ("s);
-	debug_print(keyboard::key_to_string(event.key));
+	debug_print(key_to_string(event.key));
 	debug_print("), down: "s);
 	debug_print(event.down);
 	debug_print('\n');
-	if (event.down) {
-		print((ascii)event.key);
-	}
 
 	if (event.down) {
 		switch (event.key) {
-			case keyboard::Key_escape: {
+			case Key_escape: {
 				acpi::power_off();
 				break;
 			}
@@ -216,19 +243,45 @@ void kernel_key_event(keyboard::Event event) {
 				break;
 			}
 		}
+
+		u8 character = event.key;
+
+		if (('a' <= character && character <= 'z')
+		 || ('0' <= character && character <= '9')
+		 || character == '`'
+		 || character == '-'
+		 || character == '='
+		 || character == '\\'
+		 || character == '['
+		 || character == ']'
+		 || character == ';'
+		 || character == '\''
+		 || character == ','
+		 || character == '.'
+		 || character == '/'
+		 || character == '\b'
+		 || character == '\n'
+		 || character == ' ')
+		{
+			if (key_held(Key_left_shift) || key_held(Key_right_shift)) {
+				character = character_add_shift[character];
+			}
+			on_character_input((ascii)character);
+		}
 	}
 }
 
 extern "C" void kernel_main() {
-	//int x = 6;
-	//(void)x;
-	//debug_print("Entered kernel_main\n"s);
-	//defer { debug_print("Exited kernel_main\n"s); };
-	//
-	//debug_print((u32)255);
-	//debug_print(" is 255\n"s);
-	//
-	//acpi::init();
+	trace;
+	int x = 6;
+	(void)x;
+	debug_print("Entered kernel_main\n"s);
+	defer { debug_print("Exited kernel_main\n"s); };
+
+	debug_print((u32)255);
+	debug_print(" is 255\n"s);
+
+	acpi::init();
 
 	interrupt::init();
 
@@ -237,8 +290,49 @@ extern "C" void kernel_main() {
     //timer::init(50);
 
 
+	init_keyboard();
 
-	keyboard::init();
+	{
+		decltype(::character_add_shift) character_add_shift;
+		for (int i = 0; i < (int)character_add_shift.count; ++i) {
+			character_add_shift[i] = i;
+		}
+
+		for (int i = 'a'; i <= 'z'; ++i) {
+			character_add_shift[i] = i - 'a' + 'A';
+		}
+
+		for (int i = 'a'; i <= 'z'; ++i) {
+			character_add_shift[i] = i - 'a' + 'A';
+		}
+		character_add_shift['0'] = ')';
+		character_add_shift['1'] = '!';
+		character_add_shift['2'] = '@';
+		character_add_shift['3'] = '#';
+		character_add_shift['4'] = '$';
+		character_add_shift['5'] = '%';
+		character_add_shift['6'] = '^';
+		character_add_shift['7'] = '&';
+		character_add_shift['8'] = '*';
+		character_add_shift['9'] = '(';
+		character_add_shift['`'] = '~';
+		character_add_shift['-'] = '_';
+		character_add_shift['='] = '+';
+		character_add_shift['['] = '{';
+		character_add_shift[']'] = '}';
+		character_add_shift[';'] = ':';
+		character_add_shift['\''] = '"';
+		character_add_shift[','] = '<';
+		character_add_shift['.'] = '>';
+		character_add_shift['/'] = '?';
+		character_add_shift['\\'] = '|';
+
+		::character_add_shift = character_add_shift;
+	}
+
+	in_cursor = VGA_SIZE_X*(VGA_SIZE_Y-1);
+	set_vga_cursor(in_cursor);
+
 
 	clear_screen();
 	print("Hello mister!\nPress escape to halt the cpu\nPress R to restart\n"s);
@@ -259,17 +353,17 @@ extern "C" void kernel_main() {
 	}
 }
 
+#if 0
+
 typedef umm ubsan_value_handle_t;
 
-struct ubsan_source_location
-{
+struct ubsan_source_location {
 	const char* filename;
 	u32 line;
 	u32 column;
 };
 
-struct ubsan_type_descriptor
-{
+struct ubsan_type_descriptor {
 	u16 type_kind;
 	u16 type_info;
 	char type_name[];
@@ -277,8 +371,7 @@ struct ubsan_type_descriptor
 
 
 
-struct ubsan_type_mismatch_data
-{
+struct ubsan_type_mismatch_data {
 	struct ubsan_source_location location;
 	struct ubsan_type_descriptor* type;
 	umm alignment;
@@ -314,3 +407,4 @@ UBSAN(out_of_bounds)
 UBSAN(shift_out_of_bounds)
 UBSAN(load_invalid_value)
 
+#endif

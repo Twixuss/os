@@ -120,8 +120,7 @@ inline static constexpr u8 icw4_buf_slave  = 0x08; // Buffered mode/slave
 inline static constexpr u8 icw4_buf_master = 0x0C; // Buffered mode/master
 inline static constexpr u8 icw4_sfnm       = 0x10; // Special fully nested (not)
 
-void remap_pic(int offset1, int offset2)
-{
+void remap_pic(int master_offset, int slave_offset) {
 	auto a1 = port::read_u8(port::pic_master_data); // save masks
 	auto a2 = port::read_u8(port::pic_slave_data);
 
@@ -129,9 +128,9 @@ void remap_pic(int offset1, int offset2)
 	//io_wait();
 	port::write_u8(port::pic_slave_command, icw1_init | icw1_icw4);
 	//io_wait();
-	port::write_u8(port::pic_master_data, offset1); // ICW2: Master PIC vector offset
+	port::write_u8(port::pic_master_data, master_offset); // ICW2: Master PIC vector offset
 	//io_wait();
-	port::write_u8(port::pic_slave_data, offset2); // ICW2: Slave PIC vector offset
+	port::write_u8(port::pic_slave_data, slave_offset); // ICW2: Slave PIC vector offset
 	//io_wait();
 	port::write_u8(port::pic_master_data, 4); // ICW3: tell Master PIC that there is a slave PIC at IRQ2 (0000 0100)
 	//io_wait();
@@ -182,16 +181,7 @@ void init() {
 	idt::set_gate(31, (u32)isr31);
 
     // Remap the PIC
-    port::write_u8(0x20, 0x11);
-    port::write_u8(0xA0, 0x11);
-    port::write_u8(0x21, 0x20);
-    port::write_u8(0xA1, 0x28);
-    port::write_u8(0x21, 0x04);
-    port::write_u8(0xA1, 0x02);
-    port::write_u8(0x21, 0x01);
-    port::write_u8(0xA1, 0x01);
-    port::write_u8(0x21, 0x0);
-    port::write_u8(0xA1, 0x0);
+	remap_pic(32, 40);
 
     // Install the IRQs
     idt::set_gate(32, (u32)irq0);
@@ -280,10 +270,6 @@ extern "C" void isr_handler(Registers &registers) {
 }
 
 extern "C" void irq_handler(Registers &registers) {
-	debug_print("in irq_handler "s);
-	debug_print(registers.int_no);
-	debug_print('\n');
-
     /* Handle the interrupt in a more modular way */
     if (handlers[registers.int_no] != 0) {
         handlers[registers.int_no](registers);

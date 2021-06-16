@@ -11,6 +11,10 @@
 #define assert(expression, ...) if (!(expression)){ASSERTION_FAILED("assert"s, #expression##s);}else{}
 #define unreachable(...) ASSERTION_FAILED("unreachable"s, ""s)
 
+#define internal static
+#define forceinline __attribute__((always_inline))
+#define trace kernel_trace_call(__FUNCTION__); defer { kernel_trace_exit(); };
+
 using ascii = char;
 using u8    = unsigned char;
 using u16   = unsigned short;
@@ -118,6 +122,8 @@ inline constexpr Span<T> as_span(T const (&array)[count]) {
 inline constexpr Span<ascii> as_span(ascii const *string) { return {(ascii *)string, unit_count(string)}; }
 
 void assertion_failed(Span<ascii> cause, Span<ascii> expression, Span<ascii> file, u32 line);
+void kernel_trace_call(ascii const *name);
+void kernel_trace_exit();
 
 template <class T, umm _capacity>
 struct StaticList {
@@ -134,6 +140,9 @@ struct StaticList {
 		copy_memory(data + count, span.data, span.count);
 		count += span.count;
 		return {data + count - span.count, span.count};
+	}
+	T pop() {
+		return data[--count];
 	}
 
 	inline constexpr void clear() {
@@ -157,6 +166,18 @@ template <class T, umm capacity>
 inline Span<T> as_span(StaticList<T, capacity> &list) {
 	return {list.data, list.count};
 }
+
+
+template <class T, umm count_>
+struct Array {
+	inline static constexpr umm count = count_;
+	T data[count];
+
+	forceinline T &operator[](umm index) {
+		bounds_check(index < count);
+		return data[index];
+	}
+};
 
 
 struct StaticStringBuilder : StaticList<ascii, 4096> {

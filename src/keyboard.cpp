@@ -3,27 +3,15 @@
 #include "interrupt.h"
 #include "debug.h"
 
-void kernel_key_event(keyboard::Event event);
+void kernel_key_event(KeyboardEvent event);
 
-namespace keyboard {
+internal StaticList<u8, 6> scan_code_sequence;
 
-StaticList<u8, 6> scan_code_sequence;
-
-Key scan_code_to_key_unescaped[256];
-Key scan_code_to_key_escaped_with_e0[256];
-
-Key scan_code_to_key(u8 scan_code, bool escaped) {
-	if (escaped) {
-		switch (scan_code) {
-		}
-	} else {
-		switch (scan_code) {
-		}
-	}
-	return 0;
-}
+internal Array<Key, 256> scan_code_to_key_unescaped;
+internal Array<Key, 256> scan_code_to_key_escaped_with_e0;
 
 Span<ascii> key_to_string(Key key) {
+	trace;
 #define K(key, value) case Key_##key:return#key##s;
 	switch (key) {
 		ALL_KEYS
@@ -32,8 +20,9 @@ Span<ascii> key_to_string(Key key) {
 	return "unknown"s;
 }
 
-Event sequence_to_event() {
-	Event event;
+internal KeyboardEvent sequence_to_event() {
+	trace;
+	KeyboardEvent event;
 	switch (scan_code_sequence.count) {
 		case 1: {
 			auto scan_code = scan_code_sequence.data[0];
@@ -71,7 +60,10 @@ Event sequence_to_event() {
 	return event;
 }
 
-void callback(Registers &registers) {
+internal Array<bool, 256> key_state;
+
+internal void callback(Registers &registers) {
+	trace;
 	(void)registers;
 
     /* The PIC leaves us the scan_code in port 0x60 */
@@ -86,12 +78,14 @@ void callback(Registers &registers) {
 	auto event = sequence_to_event();
 
 	if (event.key) {
+		key_state[event.key] = event.down;
 		kernel_key_event(event);
 		scan_code_sequence.clear();
 	}
 }
 
-void init() {
+void init_keyboard() {
+	trace;
 	interrupt::set_handler(interrupt::irq_1, callback);
 
 #define C(sc, key) scan_code_to_key_unescaped[sc] = key
@@ -211,4 +205,7 @@ void init() {
 }
 
 
+bool key_held(Key key) {
+	trace;
+	return key_state[key];
 }
